@@ -1,0 +1,26 @@
+# Python specific ignores
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment (this is the most important one!)
+.venv/
+venv/
+env/
+
+# FastAPI/Uvicorn specific generated files
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.log
+*.tmp
+
+# Environment variables file (where your actual API key will live)
+.env
+
+# IDE specific files
+.vscode/    # VS Code configuration (optional - can be included if team uses same setup)
+.idea/      # PyCharm/IntelliJ IDEA configuration
