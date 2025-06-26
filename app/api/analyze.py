@@ -4,28 +4,42 @@ from fastapi import APIRouter, HTTPException, Body
 from pydantic import HttpUrl
 from typing import List
 import datetime
+import asyncio # Required for asyncio.gather
 
 # Import your schemas (data models)
-from ..schemas import AnalysisRequest, AnalysisResult, Issue, AnalysisSummary
+from ..schemas import AnalysisRequest, AnalysisResult, Issue, AnalysisSummary, AiSuggestion
 
 # Import services for browser automation and Axe scanning
 from ..services.browser import get_webdriver
 from ..services.axe_runner import run_axe_scan
+from ..services.ai_helper import get_ai_suggestions # This import is kept, as AI is active and working
 
 # Import your custom accessibility rules
 from ..rules.alt_text import check_alt_text
-# from ..rules.headings import check_heading_structure # Uncomment when you create this file and function
-# from ..rules.labels import check_form_labels # Uncomment when you create this file and function
-# from ..rules.contrast import check_color_contrast # Uncomment when you create this file and function
+from ..rules.headings import check_heading_structure
+from ..rules.labels import check_form_labels
+from ..rules.contrast import check_color_contrast # UNCOMMENTED: Import the new custom rule
 
 router = APIRouter()
 
 @router.post("/analyze", response_model=AnalysisResult)
 async def analyze_url(request: AnalysisRequest = Body(...)):
     """
-    Analyzes a given URL for accessibility issues using Selenium, Axe-core,
-    and custom BeautifulSoup rules. AI-powered fix suggestions are currently
-    not enabled in this version.
+    Analyzes a given URL for accessibility issues using:
+    1. Selenium for headless browser automation.
+    2. Axe-core via axe-selenium-python for automated accessibility checks.
+    3. Custom BeautifulSoup rules (e.g., alt text, heading structure, form labels, color contrast) for additional static HTML checks.
+    4. Gemini API for AI-powered fix suggestions (currently active).
+
+    Args:
+        request (AnalysisRequest): A Pydantic model containing the URL to analyze.
+
+    Returns:
+        AnalysisResult: A Pydantic model containing the analysis summary and a list of detected issues,
+                        each potentially with AI-generated suggestions.
+
+    Raises:
+        HTTPException: If an error occurs during the analysis process.
     """
     url = request.url
     print(f"Received request to analyze URL: {url}")
@@ -33,7 +47,7 @@ async def analyze_url(request: AnalysisRequest = Body(...)):
     driver = None
     issues: List[Issue] = []
     summary = AnalysisSummary(total_issues=0, critical=0, moderate=0, minor=0)
-    page_html_content = "" # Variable to store the full HTML for custom rules
+    page_html_content = ""
 
     try:
         # Step 1: Initialize headless browser
@@ -46,17 +60,27 @@ async def analyze_url(request: AnalysisRequest = Body(...)):
         # Step 3: Run Axe-core accessibility scan
         axe_violations_raw = run_axe_scan(driver)
         for viol in axe_violations_raw:
-            # When converting raw Axe violations to Issue, ai_suggestions will default to None
             issues.append(Issue(**viol)) 
 
         # Step 4: Run Custom BeautifulSoup rules
-        issues.extend(check_alt_text(page_html_content))
-        # Add more custom rule checks here as you implement them
+        issues.extend(check_alt_text(page_html_content))          
+        issues.extend(check_heading_structure(page_html_content)) 
+        issues.extend(check_form_labels(page_html_content))       
+        issues.extend(check_color_contrast(page_html_content))    # NEW: Call the new custom rule for color contrast
 
-        # No AI suggestion generation here in this version.
-        # The ai_suggestions field in the Issue schema will remain None.
+        # Step 5: Generate AI suggestions for each detected issue
+        tasks = []
+        for issue in issues:
+            problematic_html = issue.nodes[0].html if issue.nodes else ""
+            tasks.append(get_ai_suggestions(issue.description, issue.help, problematic_html))
+        
+        ai_suggestions_results = await asyncio.gather(*tasks)
 
-        # Step 5: Calculate the analysis summary based on all collected issues (Axe + Custom)
+        for i, suggestion_data in enumerate(ai_suggestions_results):
+            issues[i].ai_suggestions = AiSuggestion(**suggestion_data)
+
+
+        # Step 6: Calculate the comprehensive analysis summary
         summary.total_issues = len(issues)
         for issue in issues:
             if issue.severity == "critical":

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Contrast Test Page</title>
+    <!-- This rule will NOT be detected by our custom rule -->
+    <style>
+      .low-contrast {
+        color: #aaaaaa; /* Light gray */
+        background-color: #ffffff; /* White */
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Contrast Test</h1>
+    <p style="color: #aaaaaa; background-color: #ffffff">
+      This text has low contrast (light gray on white). Our custom rule *should*
+      detect this because it's an inline style.
+    </p>
+
+    <div style="background-color: #e0e0e0; padding: 10px">
+      <span style="color: #555555; background-color: #e0e0e0">
+        This text might also have low contrast (darker gray on light gray).
+      </span>
+    </div>
+
+    <p class="low-contrast">
+      This text uses external/internal CSS, which our custom rule will NOT
+      detect.
+    </p>
+
+    <form>
+      <label for="name">Name:</label>
+      <input type="text" id="name" />
+      <input type="text" placeholder="Email" id="email_placeholder" />
+    </form>
+
+    <img src="https://placehold.co/150x100?text=Test" alt="" />
+    <!-- Image with missing alt -->
+  </body>
+</html>
