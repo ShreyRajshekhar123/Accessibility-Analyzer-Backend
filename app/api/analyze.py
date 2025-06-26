@@ -12,13 +12,17 @@ from ..schemas import AnalysisRequest, AnalysisResult, Issue, AnalysisSummary, A
 # Import services for browser automation and Axe scanning
 from ..services.browser import get_webdriver
 from ..services.axe_runner import run_axe_scan
-from ..services.ai_helper import get_ai_suggestions # This import is kept, as AI is active and working
+from ..services.ai_helper import get_ai_suggestions 
 
 # Import your custom accessibility rules
 from ..rules.alt_text import check_alt_text
 from ..rules.headings import check_heading_structure
 from ..rules.labels import check_form_labels
-from ..rules.contrast import check_color_contrast # UNCOMMENTED: Import the new custom rule
+from ..rules.contrast import check_color_contrast
+from ..rules.empty_interactive import check_empty_interactive_elements
+from ..rules.document_language import check_document_language
+from ..rules.descriptive_link_text import check_descriptive_link_text
+from ..rules.media_captions import check_media_captions # NEW: Import the new custom rule
 
 router = APIRouter()
 
@@ -28,7 +32,7 @@ async def analyze_url(request: AnalysisRequest = Body(...)):
     Analyzes a given URL for accessibility issues using:
     1. Selenium for headless browser automation.
     2. Axe-core via axe-selenium-python for automated accessibility checks.
-    3. Custom BeautifulSoup rules (e.g., alt text, heading structure, form labels, color contrast) for additional static HTML checks.
+    3. Custom BeautifulSoup rules (e.g., alt text, heading structure, form labels, color contrast, empty interactive elements, document language, descriptive link text, media captions) for additional static HTML checks.
     4. Gemini API for AI-powered fix suggestions (currently active).
 
     Args:
@@ -66,7 +70,11 @@ async def analyze_url(request: AnalysisRequest = Body(...)):
         issues.extend(check_alt_text(page_html_content))          
         issues.extend(check_heading_structure(page_html_content)) 
         issues.extend(check_form_labels(page_html_content))       
-        issues.extend(check_color_contrast(page_html_content))    # NEW: Call the new custom rule for color contrast
+        issues.extend(check_color_contrast(page_html_content))    
+        issues.extend(check_empty_interactive_elements(page_html_content))
+        issues.extend(check_document_language(page_html_content))
+        issues.extend(check_descriptive_link_text(page_html_content))
+        issues.extend(check_media_captions(page_html_content)) # NEW: Call the new custom rule
 
         # Step 5: Generate AI suggestions for each detected issue
         tasks = []

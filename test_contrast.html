@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
+  <!-- lang attribute REMOVED for testing -->
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Contrast Test Page</title>
-    <!-- This rule will NOT be detected by our custom rule -->
+    <title>Accessibility Test Page</title>
     <style>
       .low-contrast {
         color: #aaaaaa; /* Light gray */
@@ -13,10 +13,9 @@
     </style>
   </head>
   <body>
-    <h1>Contrast Test</h1>
+    <h1>Accessibility Test</h1>
     <p style="color: #aaaaaa; background-color: #ffffff">
-      This text has low contrast (light gray on white). Our custom rule *should*
-      detect this because it's an inline style.
+      This text has low contrast (light gray on white).
     </p>
 
     <div style="background-color: #e0e0e0; padding: 10px">
@@ -38,5 +37,38 @@
 
     <img src="https://placehold.co/150x100?text=Test" alt="" />
     <!-- Image with missing alt -->
+
+    <h2>Interactive Elements</h2>
+    <a href="#"></a>
+    <!-- EMPTY LINK -->
+    <button></button>
+    <!-- EMPTY BUTTON -->
+    <a href="#" aria-label="Skip to content"></a>
+    <!-- Link with aria-label -->
+    <button aria-label="Close">X</button>
+    <!-- Button with aria-label -->
+    <a href="#">Read More</a>
+    <!-- Non-descriptive link text -->
+    <a href="#">Click Here</a>
+    <!-- Non-descriptive link text -->
+    <a href="#">Learn More</a>
+    <!-- Non-descriptive link text -->
+    <button>Submit</button>
+    <!-- Button with visible text -->
+
+    <h2>Media Elements</h2>
+    <video controls src="video.mp4"></video>
+    <!-- Video without captions/descriptions -->
+    <audio controls src="audio.mp3"></audio>
+    <!-- Audio without captions -->
+    <video controls src="video2.mp4">
+      <track
+        kind="captions"
+        src="video2_captions.vtt"
+        srclang="es"
+        label="Spanish"
+      />
+    </video>
+    <!-- Video with only captions, still missing descriptions -->
   </body>
 </html>
