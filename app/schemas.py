@@ -26,6 +26,7 @@ class AnalysisSummary(BaseModel):
     critical: int
     moderate: int
     minor: int
+    score: Optional[int] = None # <-- THIS IS THE CRUCIAL ADDITION FOR THE SCORE
     # Add more categories as needed
 
 class AnalysisResult(BaseModel):

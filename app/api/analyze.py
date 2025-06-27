@@ -50,7 +50,8 @@ async def analyze_url(request: AnalysisRequest = Body(...)):
 
     driver = None
     issues: List[Issue] = []
-    summary = AnalysisSummary(total_issues=0, critical=0, moderate=0, minor=0)
+    # Initialize summary with zero counts before analysis starts, and score
+    summary = AnalysisSummary(total_issues=0, critical=0, moderate=0, minor=0, score=100) # Initialize score to 100
     page_html_content = ""
 
     try:
@@ -88,15 +89,34 @@ async def analyze_url(request: AnalysisRequest = Body(...)):
             issues[i].ai_suggestions = AiSuggestion(**suggestion_data)
 
 
-        # Step 6: Calculate the comprehensive analysis summary
+        # Step 6: Calculate the comprehensive analysis summary and accessibility score
         summary.total_issues = len(issues)
+        
+        # Initialize deductions
+        critical_deduction = 0
+        moderate_deduction = 0
+        minor_deduction = 0
+
+        # Define weights for score calculation (Adjusted for less aggressive deductions)
+        # You can tune these values based on how impactful each severity should be on the score.
+        CRITICAL_WEIGHT = 5  # Reduced from 10
+        MODERATE_WEIGHT = 2  # Reduced from 5
+        MINOR_WEIGHT = 1     # Reduced from 2
+
         for issue in issues:
             if issue.severity == "critical":
                 summary.critical += 1
+                critical_deduction += CRITICAL_WEIGHT
             elif issue.severity in ["serious", "moderate"]: 
                 summary.moderate += 1
+                moderate_deduction += MODERATE_WEIGHT
             elif issue.severity == "minor":
                 summary.minor += 1
+                minor_deduction += MINOR_WEIGHT
+
+        # Calculate the score
+        calculated_score = 100 - (critical_deduction + moderate_deduction + minor_deduction)
+        summary.score = max(0, calculated_score) # Ensure score doesn't go below 0
 
     except Exception as e:
         print(f"Error during analysis of {url}: {e}")
