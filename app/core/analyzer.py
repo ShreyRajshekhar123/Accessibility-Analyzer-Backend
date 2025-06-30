@@ -1,15 +1,12 @@
-# backend/app/core/analyzer.py
-
 import logging
 import asyncio
 import traceback
 from typing import List, Tuple, Dict, Any, Optional
 from pydantic import HttpUrl
 from bs4 import BeautifulSoup
-from selenium.webdriver.remote.webdriver import WebDriver # For type hinting
 
 # Import services for browser automation and Axe scanning
-from ..services.browser import get_webdriver
+from ..services.browser import get_browser_context_and_page, close_browser_context
 from ..services.axe_runner import run_axe_scan
 from ..services.ai_helper import get_ai_suggestions
 
@@ -25,6 +22,7 @@ from ..rules.media_captions import check_media_captions
 
 # Import your schemas (data models)
 from ..schemas import Issue, AiSuggestion, IssueNode
+from playwright.async_api import BrowserContext, Page # For type hinting
 
 logger = logging.getLogger("accessibility_analyzer_backend.core.analyzer")
 
@@ -46,31 +44,36 @@ async def run_full_analysis(url: HttpUrl) -> Tuple[List[Issue], str, str]:
             - The full HTML content of the analyzed page.
             - The title of the analyzed page.
     """
-    driver: Optional[WebDriver] = None
+    context: Optional[BrowserContext] = None
+    page: Optional[Page] = None
     issues_list: List[Issue] = []
     page_html_content = ""
     page_title = "N/A"
 
     try:
-        logger.info(f"Starting WebDriver for URL: {url}")
-        driver = get_webdriver("chrome") # Or configurable browser type
-        driver.get(str(url))
-        page_html_content = driver.page_source
+        logger.info(f"Starting Playwright browser context and page for URL: {url}")
+        # Use a context manager to ensure browser context is closed
+        context, page = await get_browser_context_and_page("chromium") # Or configurable browser type
+        
+        await page.goto(str(url), wait_until="networkidle") # Wait for network to be idle
+        page_html_content = await page.content() # Get full HTML content
         logger.info(f"Successfully loaded page content for URL: {url}")
 
-        # Extract page title
+        # Extract page title using Playwright's API
         try:
-            soup = BeautifulSoup(page_html_content, 'lxml')
-            page_title_tag = soup.find('title')
-            if page_title_tag and page_title_tag.string:
-                page_title = page_title_tag.string.strip()
+            page_title = await page.title()
+            if page_title:
+                page_title = page_title.strip()
                 logger.info(f"Extracted page title: '{page_title}' for URL: {url}")
+            else:
+                page_title = "N/A" # Fallback if title is empty
         except Exception as title_e:
             logger.warning(f"Failed to extract page title for URL: {url}. Error: {title_e}")
+            page_title = "N/A" # Ensure page_title is set even on error
 
         # --- Run Axe-core scan ---
         logger.info(f"Running Axe-core scan for URL: {url}")
-        axe_violations_raw = run_axe_scan(driver)
+        axe_violations_raw = await run_axe_scan(page) # Await the async function
         logger.info(f"Axe-core scan completed. Found {len(axe_violations_raw)} raw violations.")
 
         for viol in axe_violations_raw:
@@ -96,11 +99,11 @@ async def run_full_analysis(url: HttpUrl) -> Tuple[List[Issue], str, str]:
                 ))
             except Exception as e:
                 logger.error(f"Error parsing Axe violation into Issue schema: {e}. Violation: {viol}")
-                logger.debug(traceback.format_exc()) # Only import traceback if needed, for production might remove
-                # Decide if you want to skip this malformed issue or raise an error
+                logger.debug(traceback.format_exc())
 
         # --- Run custom rules ---
         logger.info("Running custom accessibility rules.")
+        # Your custom rules still operate on the HTML content, which is good.
         custom_rule_checks = [
             check_alt_text(page_html_content),
             check_heading_structure(page_html_content),
@@ -122,8 +125,6 @@ async def run_full_analysis(url: HttpUrl) -> Tuple[List[Issue], str, str]:
         # --- Fetch AI suggestions concurrently ---
         ai_suggestion_tasks = []
         for issue in issues_list:
-            # Ensure nodes and their properties are safely accessed
-            # Pass only relevant text to AI helper to save tokens/cost
             problematic_html = issue.nodes[0].html if issue.nodes and issue.nodes[0].html else ""
             ai_suggestion_tasks.append(get_ai_suggestions(issue.description, issue.help, problematic_html))
 
@@ -151,10 +152,10 @@ async def run_full_analysis(url: HttpUrl) -> Tuple[List[Issue], str, str]:
 
     except Exception as e:
         logger.critical(f"CRITICAL Analysis Core Error: An unhandled exception occurred during analysis of {url}. Error: {e}")
-        logger.error(traceback.format_exc()) # Import traceback if not already
-        raise # Re-raise the exception to be caught by the API endpoint
+        logger.error(traceback.format_exc())
+        raise
 
     finally:
-        if driver:
-            logger.info(f"Quitting WebDriver for URL: {url}")
-            driver.quit()
+        if context: # Check if context was successfully created
+            logger.info(f"Closing Playwright browser context for URL: {url}")
+            await close_browser_context(context)
