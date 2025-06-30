@@ -2,10 +2,9 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
-from selenium.webdriver.chrome.service import Service as ChromeService # Import Service for Chrome
-from selenium.webdriver.firefox.service import Service as FirefoxService # Import Service for Firefox
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.firefox.service import Service as FirefoxService
 
-# UNCOMMENT AND USE THESE LINES
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.firefox import GeckoDriverManager
 import os
@@ -24,37 +23,45 @@ def get_webdriver(browser_type: str = "chrome"):
         options.add_argument("--disable-gpu") # Recommended for headless mode
         options.add_argument("--log-level=3") # Suppress unnecessary logs
 
-        # >>> MODIFIED FOR RENDER/CLOUD DEPLOYMENT TO USE WEBDriver_MANAGER <<<
-        # This will automatically download the correct chromedriver executable
-        # and set its path for Selenium.
+        # >>> NEW CRUCIAL LINE HERE <<<
+        # This tells Selenium where to find the Chrome browser executable on Render.
+        # It's usually '/usr/bin/chromium-browser' for Render's native environments.
+        # You could also get this from an environment variable (e.g., os.getenv("CHROMIUM_PATH"))
+        # if you prefer, but directly setting it is common for this known path.
+        options.binary_location = "/usr/bin/chromium-browser" #
+
         try:
+            # Use ChromeDriverManager to automatically download and manage the ChromeDriver executable
             service = ChromeService(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=options)
-            return driver # Return driver directly if successful
+            return driver
         except Exception as e:
             print(f"Error initializing Chrome WebDriver with WebDriverManager: {e}")
-            raise # Re-raise the exception to propagate it
+            raise
 
     elif browser_type.lower() == "firefox":
         options = FirefoxOptions()
         options.add_argument("--headless")
-        options.add_argument("--no-sandbox") # Add for Firefox too for consistency
-        options.add_argument("--disable-dev-shm-usage") # Add for Firefox too for consistency
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
 
-        # >>> MODIFIED FOR RENDER/CLOUD DEPLOYMENT TO USE WEBDriver_MANAGER <<<
-        # This will automatically download the correct geckodriver executable
+        # >>> NEW CRUCIAL LINE HERE FOR FIREFOX (if you use it) <<<
+        # This tells Selenium where to find the Firefox browser executable on Render.
+        # This path might vary, but for now, we'll keep it for completeness.
+        # You might need to confirm the actual path if you use Firefox.
+        options.binary_location = "/usr/bin/firefox" # Common path, verify for Render
+
         try:
             service = FirefoxService(GeckoDriverManager().install())
             driver = webdriver.Firefox(service=service, options=options)
-            return driver # Return driver directly if successful
+            return driver
         except Exception as e:
             print(f"Error initializing Firefox WebDriver with WebDriverManager: {e}")
-            raise # Re-raise the exception to propagate it
+            raise
 
     else:
         raise ValueError("Unsupported browser type. Choose 'chrome' or 'firefox'.")
 
-# Your __main__ block is fine for testing once the above is fixed.
 if __name__ == "__main__":
     print("Testing Chrome headless browser...")
     try:
