@@ -10,7 +10,7 @@ from pydantic import HttpUrl
 import traceback # Import traceback for detailed error logging
 
 # --- CRITICAL FIX: Correct Import Paths based on your schemas.py location ---
-from ..schemas import AnalysisResult, PyObjectId # Changed from app.models.report
+from ..schemas import AnalysisResult, PyObjectId 
 
 # --- IMPORTANT FIX: Use get_reports_collection for consistency ---
 from .connection import get_reports_collection 
@@ -68,7 +68,18 @@ class AnalysisRepository:
             # Pydantic's model_dump(by_alias=True) will convert 'id' to '_id' for MongoDB
             # and PyObjectId to ObjectId for storage, and exclude_none will remove None values
             doc_to_save = analysis_result.model_dump(by_alias=True, exclude_none=True)
-            doc_to_save['url'] = str(analysis_result.url) # Ensure HttpUrl is stored as string
+            
+            # --- FIX: Ensure ALL HttpUrl fields are converted to strings for MongoDB storage ---
+            # Top-level URL
+            if isinstance(doc_to_save.get('url'), HttpUrl):
+                doc_to_save['url'] = str(doc_to_save['url'])
+
+            # Nested helpUrl within issues
+            if 'issues' in doc_to_save and isinstance(doc_to_save['issues'], list):
+                for issue_item in doc_to_save['issues']:
+                    if isinstance(issue_item.get('helpUrl'), HttpUrl):
+                        issue_item['helpUrl'] = str(issue_item['helpUrl'])
+            # --- END FIX ---
 
             # Ensure timestamp is set or updated
             doc_to_save['timestamp'] = datetime.datetime.now(datetime.timezone.utc)
