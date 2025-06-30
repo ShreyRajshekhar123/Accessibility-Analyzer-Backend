@@ -55,7 +55,7 @@ async def run_full_analysis(url: HttpUrl) -> Tuple[List[Issue], str, str]:
         # Use a context manager to ensure browser context is closed
         context, page = await get_browser_context_and_page("chromium") # Or configurable browser type
         
-        await page.goto(str(url), wait_until="networkidle") # Wait for network to be idle
+        await page.goto(str(url), wait_until="networkidle", timeout=90000) # Increased timeout to 90 seconds (90000ms)# Wait for network to be idle
         page_html_content = await page.content() # Get full HTML content
         logger.info(f"Successfully loaded page content for URL: {url}")
 
