@@ -6,6 +6,11 @@ from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import ConnectionFailure, OperationFailure
 
+# --- Import settings from your config ---
+# This import assumes that app/config.py exists and defines a 'settings' object
+# which is an instance of a pydantic_settings BaseSettings class.
+from app.config import settings
+
 logger = logging.getLogger("accessibility_analyzer_backend.database.connection")
 
 # Global variables to hold the MongoDB client and collection instance
@@ -18,9 +23,16 @@ async def connect_to_mongo():
     """
     global client, analysis_collection
 
-    MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-    MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "accessibility_analyzer_db")
+    # --- USE THE SETTINGS OBJECT FOR MONGODB_URI AND MONGODB_DB_NAME ---
+    # These values are now populated from environment variables (or .env file)
+    # via the pydantic-settings in app.config.py
+    MONGO_URI = settings.MONGODB_URI
+    MONGO_DB_NAME = settings.MONGODB_DB_NAME
+
+    # For MONGO_COLLECTION_NAME, if it's not in your settings, you can keep os.getenv
+    # or hardcode it if it's always "analysis_results".
     MONGO_COLLECTION_NAME = os.getenv("MONGO_COLLECTION_NAME", "analysis_results")
+
 
     try:
         logger.info(f"Attempting to connect to MongoDB at: {MONGO_URI} for database: {MONGO_DB_NAME}")
@@ -45,15 +57,19 @@ async def connect_to_mongo():
 
     except ConnectionFailure as e:
         logger.critical(f"CRITICAL: Could not connect to MongoDB at {MONGO_URI}. "
-                        f"Please ensure MongoDB is running and accessible. Error: {e}")
+                         f"Please ensure MongoDB is running and accessible. Error: {e}")
         client = None
         analysis_collection = None
-        # In a production setup, you might want to raise this or sys.exit(1) if DB is critical
+        # Re-raise the exception to propagate the critical error and stop the app startup if DB connection fails
+        raise
+
     except Exception as e:
         logger.critical(f"An unexpected and critical error occurred during MongoDB connection setup: {e}")
         client = None
         analysis_collection = None
-        
+        # Re-raise the exception to propagate the critical error and stop the app startup
+        raise
+
 async def close_mongo_connection():
     """
     Closes the MongoDB connection.
