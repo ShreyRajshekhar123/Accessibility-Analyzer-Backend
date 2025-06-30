@@ -26,26 +26,17 @@ def get_webdriver(browser_type: str = "chrome"):
         if chrome_binary_path:
             options.binary_location = chrome_binary_path
         else:
-            # This 'else' block is for local development if you still want to use webdriver_manager
-            # or for a more robust error handling if the env var isn't set.
-            # On Render, this path should always be set by the buildpack.
-            print("WARNING: GOOGLE_CHROME_BIN environment variable not found. Relying on local Chrome installation or WebDriverManager.")
-            # If you *must* have webdriver_manager for local development AND Render,
-            # you'd put the webdriver_manager install here, but it's often better
-            # to have separate logic or a dedicated dev setup.
-            # For Render, the buildpack *must* provide this.
+            # *** IMPORTANT ADJUSTMENT HERE ***
+            # Raise an error if GOOGLE_CHROME_BIN is not set, as it must be for Render
+            raise EnvironmentError("GOOGLE_CHROME_BIN environment variable not set. Cannot find Chrome binary for Render deployment.")
+
 
         # Get ChromeDriver path from environment variable set by Render buildpack
         chromedriver_path = os.getenv("CHROMEDRIVER_PATH")
         if chromedriver_path:
             service = webdriver.ChromeService(executable_path=chromedriver_path)
         else:
-            # Similar to above, this 'else' is for local development or robust error.
-            # On Render, this path should always be set by the buildpack.
-            print("WARNING: CHROMEDRIVER_PATH environment variable not found. Relying on local ChromeDriver or WebDriverManager.")
-            # If you *must* have webdriver_manager for local development AND Render,
-            # you'd put the webdriver_manager install here.
-            # service = webdriver.ChromeService(ChromeDriverManager().install()) # Use this ONLY for local if needed
+            # This is correct: raise an error if CHROMEDRIVER_PATH is not set
             raise EnvironmentError("CHROMEDRIVER_PATH environment variable not set. Cannot find ChromeDriver for Render deployment.")
 
         try:
