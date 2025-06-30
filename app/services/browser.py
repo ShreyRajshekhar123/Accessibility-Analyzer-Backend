@@ -2,8 +2,12 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
-# from webdriver_manager.chrome import ChromeDriverManager # REMOVE THIS
-# from webdriver_manager.firefox import GeckoDriverManager # REMOVE THIS
+from selenium.webdriver.chrome.service import Service as ChromeService # Import Service for Chrome
+from selenium.webdriver.firefox.service import Service as FirefoxService # Import Service for Firefox
+
+# UNCOMMENT AND USE THESE LINES
+from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.firefox import GeckoDriverManager
 import os
 
 def get_webdriver(browser_type: str = "chrome"):
@@ -20,66 +24,38 @@ def get_webdriver(browser_type: str = "chrome"):
         options.add_argument("--disable-gpu") # Recommended for headless mode
         options.add_argument("--log-level=3") # Suppress unnecessary logs
 
-        # >>> CRUCIAL CHANGES FOR RENDER/CLOUD DEPLOYMENT <<<
-        # Get Chrome binary path from environment variable set by Render buildpack
-        chrome_binary_path = os.getenv("GOOGLE_CHROME_BIN")
-        if chrome_binary_path:
-            options.binary_location = chrome_binary_path
-        else:
-            # *** IMPORTANT ADJUSTMENT HERE ***
-            # Raise an error if GOOGLE_CHROME_BIN is not set, as it must be for Render
-            raise EnvironmentError("GOOGLE_CHROME_BIN environment variable not set. Cannot find Chrome binary for Render deployment.")
-
-
-        # Get ChromeDriver path from environment variable set by Render buildpack
-        chromedriver_path = os.getenv("CHROMEDRIVER_PATH")
-        if chromedriver_path:
-            service = webdriver.ChromeService(executable_path=chromedriver_path)
-        else:
-            # This is correct: raise an error if CHROMEDRIVER_PATH is not set
-            raise EnvironmentError("CHROMEDRIVER_PATH environment variable not set. Cannot find ChromeDriver for Render deployment.")
-
+        # >>> MODIFIED FOR RENDER/CLOUD DEPLOYMENT TO USE WEBDriver_MANAGER <<<
+        # This will automatically download the correct chromedriver executable
+        # and set its path for Selenium.
         try:
+            service = ChromeService(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=options)
+            return driver # Return driver directly if successful
         except Exception as e:
-            print(f"Error initializing Chrome WebDriver: {e}")
-            raise
+            print(f"Error initializing Chrome WebDriver with WebDriverManager: {e}")
+            raise # Re-raise the exception to propagate it
+
     elif browser_type.lower() == "firefox":
         options = FirefoxOptions()
         options.add_argument("--headless")
+        options.add_argument("--no-sandbox") # Add for Firefox too for consistency
+        options.add_argument("--disable-dev-shm-usage") # Add for Firefox too for consistency
 
-        # >>> CRUCIAL CHANGES FOR RENDER/CLOUD DEPLOYMENT (Firefox equivalent) <<<
-        # If you were to use Firefox on Render, you'd need similar buildpacks
-        # and environment variable checks for Firefox binary and geckodriver.
-        # For simplicity, if you're primarily using Chrome, you can ignore this for now.
-        firefox_binary_path = os.getenv("FIREFOX_BIN") # Example env var
-        if firefox_binary_path:
-            options.binary_location = firefox_binary_path
-
-        geckodriver_path = os.getenv("GECKODRIVER_PATH") # Example env var
-        if geckodriver_path:
-            service = webdriver.FirefoxService(executable_path=geckodriver_path)
-        else:
-            # service = webdriver.FirefoxService(GeckoDriverManager().install()) # Use this ONLY for local if needed
-            raise EnvironmentError("GECKODRIVER_PATH environment variable not set. Cannot find GeckoDriver for Render deployment.")
-
+        # >>> MODIFIED FOR RENDER/CLOUD DEPLOYMENT TO USE WEBDriver_MANAGER <<<
+        # This will automatically download the correct geckodriver executable
         try:
+            service = FirefoxService(GeckoDriverManager().install())
             driver = webdriver.Firefox(service=service, options=options)
+            return driver # Return driver directly if successful
         except Exception as e:
-            print(f"Error initializing Firefox WebDriver: {e}")
-            raise
+            print(f"Error initializing Firefox WebDriver with WebDriverManager: {e}")
+            raise # Re-raise the exception to propagate it
+
     else:
         raise ValueError("Unsupported browser type. Choose 'chrome' or 'firefox'.")
 
-    return driver
-
+# Your __main__ block is fine for testing once the above is fixed.
 if __name__ == "__main__":
-    # Simple test to verify driver setup
-    # Note: This __main__ block might still fail locally if you don't have
-    # GOOGLE_CHROME_BIN/CHROMEDRIVER_PATH set locally or if you've removed
-    # webdriver_manager entirely for local testing.
-    # For robust local testing, you might want to wrap this in a check
-    # for being on Render vs. local.
     print("Testing Chrome headless browser...")
     try:
         driver = get_webdriver("chrome")
