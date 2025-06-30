@@ -1,31 +1,37 @@
-# backend/app/database/repository.py (Updated)
+# backend/app/database/repository.py
 
 import logging
 from typing import List, Optional
 import datetime
 from bson import ObjectId
 from pymongo.errors import PyMongoError
+from bson.errors import InvalidId
 from pydantic import HttpUrl
 import traceback # Import traceback for detailed error logging
 
-# Import your schemas (data models)
-from ..schemas import AnalysisResult, PyObjectId # Ensure PyObjectId is imported
+# --- CRITICAL FIX: Correct Import Paths based on your schemas.py location ---
+from ..schemas import AnalysisResult, PyObjectId # Changed from app.models.report
 
-# Import the function to get the MongoDB collection
-from .connection import get_analysis_collection
+# --- IMPORTANT FIX: Use get_reports_collection for consistency ---
+from .connection import get_reports_collection 
 
 logger = logging.getLogger("accessibility_analyzer_backend.database.repository")
 
-class AnalysisRepository:
+# --- SUGGESTED RENAME: Consider renaming AnalysisRepository to ReportRepository ---
+# This class primarily handles 'AnalysisResult' objects which are 'reports'.
+class AnalysisRepository: 
     """
-    Handles CRUD operations for accessibility analysis results in MongoDB.
+    Handles CRUD operations for accessibility analysis results (reports) in MongoDB.
     """
     def __init__(self):
-        self.collection = get_analysis_collection()
+        # Initialize with the correctly named reports collection
+        self.collection = get_reports_collection() 
         if self.collection is None:
+            # This critical log should ideally not be hit if main.py and connection.py
+            # handle startup connection errors properly by exiting.
             logger.critical("AnalysisRepository initialized without a valid MongoDB collection. Database operations will likely fail.")
-            # Depending on your desired error handling, you might raise an exception here
-            # or ensure that methods check for self.collection being None.
+            # Raising an error here could also be an option to prevent method calls
+            # on a non-existent collection, but app startup should ideally prevent this.
 
     async def get_analysis_by_url_and_user(self, url: HttpUrl, user_id: str) -> Optional[AnalysisResult]:
         """
@@ -44,8 +50,8 @@ class AnalysisRepository:
             logger.info(f"Cache Miss: No cached analysis found for URL: {url} | User: {user_id}.")
             return None
         except PyMongoError as e:
-            logger.error(f"MongoDB Error in get_analysis_by_url_and_user for URL: {url}, User: {user_id}. Error: {e}")
-            return None # Return None or re-raise HTTPException
+            logger.error(f"MongoDB Error in get_analysis_by_url_and_user for URL: {url}, User: {user_id}. Error: {e}", exc_info=True)
+            return None 
         except Exception as e:
             logger.error(f"Error validating cached document for URL: {url}, User: {user_id}. Error: {e}", exc_info=True)
             return None
@@ -133,10 +139,14 @@ class AnalysisRepository:
         try:
             # Convert report_id string to MongoDB ObjectId
             obj_id = ObjectId(report_id)
-        except Exception as e: # Catch InvalidId and other potential errors during conversion
+        except InvalidId as e: # Catch specific InvalidId error
             logger.warning(f"Invalid report ID format provided: '{report_id}'. Error: {e}")
-            # Re-raise as HTTPException directly or for API layer to catch and convert to 400
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid report ID format.")
+            # Re-raise as ValueError for the API layer to catch and convert to HTTPException
+            raise ValueError(f"Invalid report ID format: {report_id}") from e 
+        except Exception as e: # Catch any other unexpected errors during conversion
+            logger.error(f"Unexpected error during ObjectId conversion for ID: '{report_id}'. Error: {e}", exc_info=True)
+            raise ValueError(f"Invalid report ID format: {report_id}") from e 
+
 
         try:
             # Find the report by _id AND user_id for security
