@@ -1,73 +1,31 @@
 import logging
 from typing import Dict, Any, List
-from playwright.async_api import Page, BrowserContext # Import Page for type hinting
+from playwright.async_api import Page
+import os
 
 logger = logging.getLogger("accessibility_analyzer_backend.services.axe_runner")
 
-# Axe-core JavaScript code (copy axe.min.js or load from CDN)
-# For production, it's highly recommended to fetch the latest axe.min.js
-# from a reliable CDN or bundle it locally.
-# For simplicity, I'm providing a minimal placeholder, but you should
-# use the actual axe.min.js content.
-# You might want to download axe.min.js and put it in a 'static' or 'js' folder
-# in your project, then read its content.
-# Example: with open("path/to/axe.min.js", "r") as f: AXE_CORE_SCRIPT = f.read()
-# For now, let's use a very basic dummy to demonstrate the structure.
-# You MUST replace this with the actual axe-core script.
-AXE_CORE_SCRIPT = """
-if (typeof axe === 'undefined') {
-    // This is a minimal placeholder for axe-core.
-    // Replace this with the actual content of axe.min.js
-    // For example: fetch('https://unpkg.com/axe-core@4.x.x/axe.min.js').then(r => r.text()).then(t => eval(t));
-    // Or, include axe.min.js in your project and load its content here.
-    var axe = {
-        run: function(element, options, callback) {
-            console.warn("Using dummy axe-core script. Please replace with actual axe.min.js content.");
-            // Simulate a simple violation
-            setTimeout(() => {
-                const violations = [
-                    {
-                        id: "dummy-violation",
-                        description: "This is a dummy accessibility violation.",
-                        help: "Replace axe.min.js for real results.",
-                        helpUrl: "https://www.deque.com/axe/core-documentation/api-documentation/#axe-core-tags",
-                        impact: "critical",
-                        tags: ["dummy", "test"],
-                        nodes: [
-                            {
-                                html: "<body>...</body>",
-                                target: ["body"],
-                                snippet: "<body>",
-                                failureSummary: "Dummy failure summary",
-                                xpath: "/html/body"
-                            }
-                        ]
-                    }
-                ];
-                callback(null, { violations: violations });
-            }, 100);
-        }
-    };
-}
-"""
-# You would load the actual axe-core script like this:
+# --- IMPORTANT: Axe-core JavaScript loading ---
+# This block attempts to load the actual axe.min.js from your project's static directory.
+# Ensure axe.min.js is placed in your 'static/js' folder directly under your 'backend' directory.
+
+AXE_CORE_SCRIPT_CONTENT = ""
 try:
-    # Assuming axe.min.js is in a 'static/js' directory at the root of your backend app
-    # Adjust path as necessary relative to where this script is run or package structure
-    import os
-    _current_dir = os.path.dirname(__file__)
+    # Construct the absolute path to axe.min.js
+    # This file (axe_runner.py) is in /app/services/
+    # To get to the project root (backend folder), we go up two directories (../../)
+    # Then navigate into static/js/axe.min.js
+    _current_dir = os.path.dirname(os.path.abspath(__file__))
     _axe_script_path = os.path.join(_current_dir, "..", "..", "static", "js", "axe.min.js")
+
     if os.path.exists(_axe_script_path):
         with open(_axe_script_path, "r", encoding="utf-8") as f:
-            AXE_CORE_SCRIPT = f.read()
+            AXE_CORE_SCRIPT_CONTENT = f.read()
         logger.info(f"Loaded axe.min.js from: {_axe_script_path}")
     else:
-        logger.warning(f"axe.min.js not found at '{_axe_script_path}'. Using placeholder/CDN if available or default.")
-        # Fallback to a CDN if you prefer, but local bundling is usually better for production stability
-        # You might want to add a step to download axe.min.js during deployment if not packaged.
-        # AXE_CORE_SCRIPT = "fetch('https://unpkg.com/axe-core@4.x.x/axe.min.js').then(r => r.text()).then(t => eval(t));"
+        logger.error(f"axe.min.js not found at expected path: '{_axe_script_path}'. Axe-core scan will likely fail.")
 except Exception as e:
-    logger.error(f"Failed to load axe.min.js: {e}. Using placeholder.")
+    logger.error(f"Failed to load axe.min.js from disk: {e}. Axe-core scan will likely fail.")
 
 
 async def run_axe_scan(page: Page) -> List[Dict[str, Any]]:
@@ -76,25 +34,32 @@ async def run_axe_scan(page: Page) -> List[Dict[str, Any]]:
     Injects axe-core and then executes the scan.
     Returns a list of accessibility violations.
     """
+    if not AXE_CORE_SCRIPT_CONTENT:
+        logger.error("AXE_CORE_SCRIPT_CONTENT is empty. Axe-core cannot be injected or run. Returning empty results.")
+        return [] # Return empty list if axe script is not loaded
+
     try:
         # Inject axe-core into the page context
-        # page.add_script_tag allows injecting JavaScript files or raw content
-        await page.add_script_tag(content=AXE_CORE_SCRIPT)
+        await page.add_script_tag(content=AXE_CORE_SCRIPT_CONTENT)
         logger.info("Axe-core script injected into the page.")
 
         # Run the axe-core scan within the browser context
-        # page.evaluate runs a JavaScript function in the page's context
-        # and returns the result to Python.
-        # axe.run() returns a Promise, so we await it in JS
         results = await page.evaluate("""
             async () => {
-                // You can customize rules here if needed, e.g.,
-                // const options = { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } };
-                // const results = await axe.run(document, options);
+                // Ensure axe is defined before running
+                if (typeof axe === 'undefined') {
+                    console.error("axe is not defined on the page. Script injection might have failed.");
+                    return null; // Explicitly return null if axe is not found
+                }
                 const results = await axe.run(document);
                 return results;
             }
         """)
+
+        # --- IMPORTANT: Handle potential NoneType from page.evaluate ---
+        if results is None:
+            logger.error("page.evaluate('axe.run()') returned None. Axe-core did not produce results. This often means axe.js wasn't loaded correctly or there was a JS error in axe.run().")
+            return [] # Return an empty list to avoid AttributeError
 
         violations = results.get('violations', [])
         logger.info(f"Axe-core scan completed. Found {len(violations)} raw violations.")
@@ -124,20 +89,25 @@ async def run_axe_scan(page: Page) -> List[Dict[str, Any]]:
             })
         return formatted_issues
     except Exception as e:
-        logger.error(f"Error running Axe-core scan with Playwright: {e}")
-        raise
+        logger.error(f"Error running Axe-core scan with Playwright: {e}", exc_info=True)
+        raise # Re-raise the exception after logging for upstream handling
 
 if __name__ == "__main__":
     import asyncio
-    from .browser import get_browser_context_and_page, close_browser_context, close_playwright_browser_instances
+    # Ensure these imports are correct relative to your project structure if you use this test block
+    from accessibility_analyzer_backend.services.browser import get_browser_context_and_page, close_browser_context, close_playwright_browser_instances
 
     async def test_axe_scan():
         context, page = None, None
         try:
             print("Testing Axe scan on example.com with Playwright...")
             context, page = await get_browser_context_and_page("chromium")
-            await page.goto("http://www.example.com") # Load a page to scan
+            
+            # Use a simple page that is less likely to have anti-bot measures
+            await page.goto("http://www.example.com", wait_until="domcontentloaded", timeout=60000)
+            
             violations = await run_axe_scan(page)
+            
             print(f"Found {len(violations)} accessibility violations.")
             if violations:
                 print("First violation:", violations[0])
@@ -145,6 +115,8 @@ if __name__ == "__main__":
                 print("No violations found.")
         except Exception as e:
             print(f"An error occurred during Axe scan test: {e}")
+            import traceback
+            traceback.print_exc() # Print full traceback for debug
         finally:
             if context:
                 await close_browser_context(context)
