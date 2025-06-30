@@ -25,3 +25,4 @@ htmlcov/
 .vscode/    # VS Code configuration (optional - can be included if team uses same setup)
 .idea/      # PyCharm/IntelliJ IDEA configuration
 app/firebase-service-account.json
+app/encode_service_account.py

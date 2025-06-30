@@ -1,27 +1,51 @@
-# backend/app/main.py (Updated by AI)
+# backend/app/main.py
 
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient # This import might not be directly used here if connection is abstracted
+from motor.motor_asyncio import AsyncIOMotorClient 
 from typing import List, Optional
 import logging
 import os
 from dotenv import load_dotenv
 import sys
+import base64 
+import json 
 import firebase_admin
 from firebase_admin import credentials, auth
+from firebase_admin.exceptions import FirebaseError
 import traceback
 from bson import ObjectId
 
-# Load environment variables at the very beginning
+# --- CRITICAL: Load environment variables at the very beginning ---
 load_dotenv()
 
+# Debug prints (keep these as they are not sensitive)
+print(f"DEBUG: MONGO_URI from env: {os.getenv('MONGODB_URI')}")
+print(f"DEBUG: MONGO_DB_NAME from env: {os.getenv('MONGODB_DB_NAME')}")
+print(f"DEBUG: GEMINI_API_KEY from env: {os.getenv('GEMINI_API_KEY')}")
+# Removed the debug print for FIREBASE_SERVICE_ACCOUNT_BASE64 for security
+
+
+# --- IMPORTANT: Explicitly ensure Pydantic-settings sees these variables ---
+# This step is crucial because Uvicorn's reloader or specific characters
+# might prevent pydantic-settings from fully parsing the .env file directly.
+# By assigning them to os.environ, we guarantee pydantic-settings finds them.
+if os.getenv('MONGO_URI'):
+    # Note: MONGO_URI in .env maps to MONGODB_URI in config.py
+    os.environ['MONGODB_URI'] = os.getenv('MONGO_URI') 
+if os.getenv('MONGO_DB_NAME'):
+    os.environ['MONGODB_DB_NAME'] = os.getenv('MONGO_DB_NAME')
+if os.getenv('GEMINI_API_KEY'):
+    os.environ['GEMINI_API_KEY'] = os.getenv('GEMINI_API_KEY')
+if os.getenv('FIREBASE_SERVICE_ACCOUNT_BASE64'):
+    os.environ['FIREBASE_SERVICE_ACCOUNT_BASE64'] = os.getenv('FIREBASE_SERVICE_ACCOUNT_BASE64')
+
+
 # --- Local imports ---
-# Assuming these modules exist in backend/app/
 # config.py is correctly imported as it's directly in 'app/'
 from app.config import settings
 
-# IMPORTANT: Corrected the import for analyze_router as per your structure
+# Corrected the import for analyze_router as per your structure
 from app.api.analyze import router as analyze_router
 
 # --- AUTHENTICATION DEPENDENCY AND DATABASE HANDLERS ---
@@ -31,25 +55,18 @@ from app.api.analyze import router as analyze_router
 # Explicitly import the authentication function
 try:
     from app.auth.auth_dependency import get_current_user_firebase
-    # Assign it directly to `auth_dependency` which is used by Depends elsewhere
-    # This needs to be a FastAPI Dependency, so it's `Depends(get_current_user_firebase)`
-    # where it's used. We don't need a global `auth_dependency` variable here for that.
-    # The `analyze.py` already directly uses `Depends(get_current_user_firebase)`.
-    pass # No need for a direct assignment here anymore, just import it
+    # No need for a direct assignment here anymore, just import it
+    pass
 except ImportError:
     logging.warning("Could not import get_current_user_firebase from app.auth.auth_dependency. This will cause issues if authentication is required.")
-    # If it's truly critical and the app shouldn't start without it, sys.exit(1) here.
 
 
 # Explicitly import database connection functions
-try:
-    from app.database.connection import close_mongo_connection, connect_to_mongo
-except ImportError:
-    logging.critical("CRITICAL: Could not import MongoDB connection handlers from app.database.connection. Database operations will fail.")
-    # Define dummy functions to prevent app from crashing immediately, but alert developer
-    async def connect_to_mongo(): logging.critical("Dummy connect_to_mongo called. MongoDB connection NOT established.")
-    async def close_mongo_connection(): logging.warning("Dummy close_mongo_connection called.")
-
+# --- START OF CHANGE ---
+# REMOVED THE try...except ImportError BLOCK HERE
+# The assumption is that app.database.connection is now importable
+from app.database.connection import close_mongo_connection, connect_to_mongo
+# --- END OF CHANGE ---
 
 # Explicitly import logging setup
 try:
@@ -63,8 +80,7 @@ except ImportError:
 # Placeholder imports for other routers if they exist
 auth_routes_router = None
 report_routes_router = None
-# --- NEW: Declare settings_routes_router here as None initially ---
-settings_routes_router = None
+settings_routes_router = None # Declare settings_routes_router here as None initially
 
 try:
     from app.routers import auth_routes
@@ -84,7 +100,7 @@ try:
 except ImportError as e:
     logging.warning(f"Could not import optional router 'report_routes' from app.routers: {e}. If this is not yet created, ignore this warning.")
 
-# --- NEW: Import settings_routes ---
+# --- Import settings_routes ---
 try:
     from app.routers import settings_routes
     if hasattr(settings_routes, 'router'):
@@ -96,7 +112,6 @@ except ImportError as e:
 
 
 # --- Global Logger Configuration ---
-# Logger for the main application file
 logger = logging.getLogger("accessibility_analyzer_backend.main") # Specific logger for main.py
 
 
@@ -118,9 +133,6 @@ app.add_middleware(
 )
 
 # --- Custom JSON Encoder for ObjectId ---
-# This ensures that any ObjectId that escapes Pydantic models (e.g., in a raw dict response)
-# is properly converted to a string. Pydantic's handling via PyObjectId is preferred,
-# but this is a good safety net.
 app.json_encoders = {
     ObjectId: str
 }
@@ -131,44 +143,49 @@ app.json_encoders = {
 async def startup_event():
     logger.info("Accessibility Analyzer API is starting up...")
 
-    # --- Firebase Admin SDK Initialization ---
-    firebase_service_account_path_env = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH")
-    app_directory = os.path.dirname(os.path.abspath(__file__))
-    backend_root_dir = os.path.dirname(app_directory) # This is `backend/`
-
-    full_service_account_path = ""
-
-    if firebase_service_account_path_env:
-        # Path specified in .env is relative to the backend root (where uvicorn is often run from)
-        full_service_account_path = os.path.join(backend_root_dir, firebase_service_account_path_env)
-    else:
-        # Default: assume it's in the 'app' directory (where main.py resides)
-        full_service_account_path = os.path.join(app_directory, "firebase-service-account.json")
-
-    full_service_account_path = os.path.normpath(full_service_account_path)
-
-    logger.info(f"Attempting to load Firebase service account from: {full_service_account_path}")
+    # --- Firebase Admin SDK Initialization using Base64 ENCODED ENV VARIABLE ---
+    # Now reading from settings, which relies on os.environ being correctly populated
+    firebase_service_account_base64 = settings.FIREBASE_SERVICE_ACCOUNT_BASE64 
 
     try:
-        if not os.path.exists(full_service_account_path):
-            raise FileNotFoundError(f"Firebase service account file not found at: {full_service_account_path}. "
-                                     "Please ensure it's in the 'backend/app/' directory or update FIREBASE_SERVICE_ACCOUNT_PATH "
-                                     "in .env to a correct relative path from the 'backend/' directory.")
+        if firebase_service_account_base64:
+            # Decode the Base64 string
+            decoded_string = base64.b64decode(firebase_service_account_base64).decode('utf-8')
+            # Parse the JSON string
+            service_account_info = json.loads(decoded_string)
+            
+            # Initialize Firebase Admin SDK with the service account
+            cred = credentials.Certificate(service_account_info)
+            firebase_admin.initialize_app(cred)
+            logger.info("Firebase Admin SDK initialized successfully using Base64 environment variable.")
+        elif os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+            # This path is for Google Cloud environments or local dev with GOOGLE_APPLICATION_CREDENTIALS path
+            firebase_admin.initialize_app() # Uses application default credentials
+            logger.info("Firebase Admin SDK initialized using GOOGLE_APPLICATION_CREDENTIALS.")
+        else:
+            logger.critical("CRITICAL - FIREBASE_SERVICE_ACCOUNT_BASE64 environment variable not found or empty. "
+                             "Firebase Admin SDK will not be initialized with service account credentials.")
+            # It's usually better to raise an exception and let FastAPI handle startup failure
+            raise RuntimeError("Firebase service account key not configured. Cannot initialize Firebase Admin SDK.")
 
-        cred = credentials.Certificate(full_service_account_path)
-        firebase_admin.initialize_app(cred)
-        logger.info("Firebase Admin SDK initialized successfully.")
-    except FileNotFoundError as e:
-        logger.critical(f"CRITICAL - Firebase Service Account File Error: {e}")
+    except (ValueError, json.JSONDecodeError) as e:
+        logger.critical(f"CRITICAL - Firebase Service Account Error: Invalid Base64 or JSON format in environment variable: {e}")
+        logger.error(traceback.format_exc())
+        sys.exit(1) # Exit application if Firebase init fails
+    except FirebaseError as e:
+        logger.critical(f"CRITICAL - Failed to initialize Firebase Admin SDK due to Firebase error: {e}")
         logger.error(traceback.format_exc())
         sys.exit(1) # Exit application if Firebase init fails
     except Exception as e:
-        logger.critical(f"CRITICAL - Failed to initialize Firebase Admin SDK: {e}")
+        logger.critical(f"CRITICAL - An unexpected error occurred during Firebase initialization: {e}")
         logger.error(traceback.format_exc())
         sys.exit(1) # Exit application if Firebase init fails
 
     # --- MongoDB Connection ---
-    await connect_to_mongo()
+    # --- START OF CHANGE ---
+    # connect_to_mongo in connection.py gets its values from os.getenv, so no arguments are needed here.
+    await connect_to_mongo() # This is the correct call
+    # --- END OF CHANGE ---
 
 
 @app.on_event("shutdown")
@@ -188,7 +205,7 @@ if auth_routes_router:
     app.include_router(auth_routes_router, prefix="/api/auth", tags=["Authentication"])
 if report_routes_router:
     app.include_router(report_routes_router, prefix="/api", tags=["Reports"])
-# --- NEW: Include settings_routes_router ---
+# Include settings_routes_router
 if settings_routes_router:
     app.include_router(settings_routes_router, prefix="/api", tags=["Settings"])
 
