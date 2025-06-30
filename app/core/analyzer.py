@@ -2,6 +2,7 @@
 
 import logging
 import asyncio
+import traceback
 from typing import List, Tuple, Dict, Any, Optional
 from pydantic import HttpUrl
 from bs4 import BeautifulSoup
